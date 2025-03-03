@@ -17,10 +17,15 @@ interface PurchaseResponse {
   message: string;
 }
 
+const MIN_AMOUNT = 200;
+const MAX_AMOUNT = 5000;
+const MIN_PERIOD = 6;
+const MAX_PERIOD = 24;
+
 function App() {
   const [personalId, setPersonalId] = useState('');
   const [amount, setAmount] = useState('');
-  const [months, setMonths] = useState('6');
+  const [months, setMonths] = useState(MIN_PERIOD);
   const [response, setResponse] = useState<PurchaseResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [showJson, setShowJson] = useState(false);
@@ -34,10 +39,10 @@ function App() {
     
     const number = parseFloat(value);
     if (!isNaN(number)) {
-      if (number < 200) {
-        setAmount('200');
-      } else if (number > 5000) {
-        setAmount('5000');
+      if (number < MIN_AMOUNT) {
+        setAmount(MIN_AMOUNT.toFixed(2));
+      } else if (number > MAX_AMOUNT) {
+        setAmount(MAX_AMOUNT.toFixed(2));
       } else {
         setAmount(number.toFixed(2));
       }
@@ -47,18 +52,18 @@ function App() {
   const handleMonthsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     if (value === '') {
-      setMonths('');
+      setMonths(MIN_PERIOD);
       return;
     }
     
     const number = parseInt(value);
     if (!isNaN(number)) {
-      if (number < 6) {
-        setMonths('6');
-      } else if (number > 24) {
-        setMonths('24');
+      if (number < MIN_PERIOD) {
+        setMonths(MIN_PERIOD);
+      } else if (number > MAX_PERIOD) {
+        setMonths(MAX_PERIOD);
       } else {
-        setMonths(number.toString());
+        setMonths(number);
       }
     }
   };
@@ -73,11 +78,11 @@ function App() {
         personalId,
         details: {
           amount: parseFloat(amount),
-          period: parseInt(months)
+          period: months
         }
       };
 
-      const res = await fetch('http://13.61.11.131:8080/api/evaluate-purchase', {
+      const res = await fetch('http://localhost:8080/api/evaluate-purchase', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -140,7 +145,7 @@ function App() {
             min="6"
             max="24"
             value={months}
-            onChange={(e) => setMonths(e.target.value)}
+            onChange={(e) => setMonths(parseInt(e.target.value))}
             onBlur={handleMonthsChange}
             required
             placeholder="Enter period (6-24)"
