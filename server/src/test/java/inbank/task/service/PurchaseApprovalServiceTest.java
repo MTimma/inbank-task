@@ -30,50 +30,6 @@ class PurchaseApprovalServiceTest {
     }
 
     @Test
-    void testEvaluatePurchase_ifRequestAmountLessThan200_ShouldDenyRequest() {
-        PurchaseRequest request = new PurchaseRequest("12345678912", new PurchaseDetails(100, 12));
-
-        PurchaseResponse response = service.evaluatePurchase(request);
-        
-        assertFalse(response.approved());
-        assertNull(response.details());
-        assertTrue(response.message().contains("Amount must be between"));
-    }
-
-    @Test
-    void testEvaluatePurchase_ifRequestAmountMoreThan5000_ShouldDenyRequest() {
-        PurchaseRequest request = new PurchaseRequest("12345678912", new PurchaseDetails(6000, 12));
-
-        PurchaseResponse response = service.evaluatePurchase(request);
-        
-        assertFalse(response.approved());
-        assertNull(response.details());
-        assertTrue(response.message().contains("Amount must be between"));
-    }
-
-    @Test
-    void testEvaluatePurchase_ifRequestPeriodLessThan6_ShouldDenyRequest() {
-        PurchaseRequest request = new PurchaseRequest("12345678912", new PurchaseDetails(1000, 3));
-
-        PurchaseResponse response = service.evaluatePurchase(request);
-        
-        assertFalse(response.approved());
-        assertNull(response.details());
-        assertTrue(response.message().contains("Period must be between"));
-    }
-
-    @Test
-    void testEvaluatePurchase_ifRequestPeriodMoreThan24_ShouldDenyRequest() {
-        PurchaseRequest request = new PurchaseRequest("12345678912", new PurchaseDetails(1000, 36));
-
-        PurchaseResponse response = service.evaluatePurchase(request);
-        
-        assertFalse(response.approved());
-        assertNull(response.details());
-        assertTrue(response.message().contains("Period must be between"));
-    }
-
-    @Test
     void testEvaluatePurchase_ifCustomerFlagged_ShouldDenyRequest() {
         when(customerProfileDao.getCustomerProfile(anyString()))
             .thenReturn(Optional.of(new CustomerProfile(true, -1)));
@@ -119,44 +75,44 @@ class PurchaseApprovalServiceTest {
     }
 
     @Test
-    void testAmountHigherThanMaximum_AdjustPeriod() {
-        assertTrue(false);//TODO fix
+    void testEvaluatePurchase_AmountLessThanMinimum_AdjustPeriod() {
+        // financial factor of 15 should result in less than acceptable minimum for  6 months
         when(customerProfileDao.getCustomerProfile(anyString()))
-            .thenReturn(Optional.of(new CustomerProfile(false, 50)));
+            .thenReturn(Optional.of(new CustomerProfile(false, 15)));
+        PurchaseRequest request = new PurchaseRequest("12345678912", new PurchaseDetails(50, 6));
 
-        // For financial factor 50 and 12 months, max amount would be 600
-        // Requesting 1000 should result in a smaller valid amount
-        PurchaseRequest request = new PurchaseRequest("12345678912", new PurchaseDetails(100, 6));
         PurchaseResponse response = service.evaluatePurchase(request);
 
         assertTrue(response.approved());
         assertNotNull(response.details());
-        assertEquals(600, response.details().amount());
-        assertEquals(12, response.details().period());
-        assertTrue(response.message().contains("The maximum available offer is"));
+        assertEquals(210, response.details().amount());
+        assertEquals(14, response.details().period());
+        assertTrue(response.message().contains("Nearest offer"));
     }
 
     @Test
-    void testNoValidOfferFound() {
+    void testEvaluatePurchase_NoValidOffer_ShouldDenyRequest() {
+        // financial factor of 5 should not allow to find a valid purchase amount
         when(customerProfileDao.getCustomerProfile(anyString()))
-            .thenReturn(Optional.of(new CustomerProfile(false, 5))); // Very low financial factor
+            .thenReturn(Optional.of(new CustomerProfile(false, 5)));
+        PurchaseRequest request = new PurchaseRequest("12345678912", new PurchaseDetails(50, 1));
 
-        PurchaseRequest request = new PurchaseRequest("12345678912", new PurchaseDetails(1000, 12));
         PurchaseResponse response = service.evaluatePurchase(request);
-        
+
         assertFalse(response.approved());
         assertNull(response.details());
-        assertEquals("No valid offer found.", response.message());
+        assertTrue(response.message().contains("No valid offer found"));
     }
 
+
     @Test
-    void testMaximumPossibleAmount() {
+    void testEvaluatePurchase_MaxPossibleRequestWith100FinancialFactor_ShouldApprove() {
         when(customerProfileDao.getCustomerProfile(anyString()))
             .thenReturn(Optional.of(new CustomerProfile(false, 500)));
 
         // With financial factor 500 and 24 months, raw amount would be 12000
         // But should be capped at 5000 (MAX_AMOUNT)
-        PurchaseRequest request = new PurchaseRequest("12345678934", new PurchaseDetails(4000, 24));
+        PurchaseRequest request = new PurchaseRequest("12345678934", new PurchaseDetails(Integer.MAX_VALUE, Integer.MAX_VALUE));
         PurchaseResponse response = service.evaluatePurchase(request);
         
         assertTrue(response.approved());
@@ -166,29 +122,30 @@ class PurchaseApprovalServiceTest {
     }
 
     @Test
-    void testUnknownCustomer() {
+    void testEvaluatePurchase_MinPossibleRequestWith100FinancialFactor_ShouldApprove() {
+        when(customerProfileDao.getCustomerProfile(anyString()))
+            .thenReturn(Optional.of(new CustomerProfile(false, 100)));
+
+        PurchaseRequest request = new PurchaseRequest("12345678923", new PurchaseDetails(-1*Integer.MAX_VALUE, -1*Integer.MAX_VALUE));
+        PurchaseResponse response = service.evaluatePurchase(request);
+
+        assertTrue(response.approved());
+        assertNotNull(response.details());
+        assertEquals(600, response.details().amount());
+        assertEquals(6, response.details().period());
+    }
+
+    @Test
+    void testEvaluatePurchase_UnknownCustomer_ShouldDenyRequest()
+    {
         when(customerProfileDao.getCustomerProfile(anyString()))
             .thenReturn(Optional.empty());
 
         PurchaseRequest request = new PurchaseRequest("99999999999", new PurchaseDetails(1000, 12));
         PurchaseResponse response = service.evaluatePurchase(request);
-        
+
         assertFalse(response.approved());
         assertNull(response.details());
         assertEquals("Customer is not found.", response.message());
-    }
-
-    @Test
-    void testEdgeCaseMinimumValidRequest() {
-        when(customerProfileDao.getCustomerProfile(anyString()))
-            .thenReturn(Optional.of(new CustomerProfile(false, 100)));
-
-        PurchaseRequest request = new PurchaseRequest("12345678923", new PurchaseDetails(200, 6));
-        PurchaseResponse response = service.evaluatePurchase(request);
-        
-        assertTrue(response.approved());
-        assertNotNull(response.details());
-        assertEquals(600, response.details().amount());
-        assertEquals(6, response.details().period());
     }
 } 

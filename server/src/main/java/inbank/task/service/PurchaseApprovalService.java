@@ -10,10 +10,10 @@ import java.util.Optional;
 
 @Service
 public class PurchaseApprovalService {
-    private static final int MIN_AMOUNT = 200;
-    private static final int MAX_AMOUNT = 5000;
-    private static final int MIN_MONTHS = 6;
-    private static final int MAX_MONTHS = 24;
+    private static final double MIN_AMOUNT = 200;
+    private static final double MAX_AMOUNT = 5000;
+    private static final int MIN_PERIOD = 6;
+    private static final int MAX_PERIOD = 24;
 
     private final CustomerProfileDao customerProfileDao;
 
@@ -32,11 +32,6 @@ public class PurchaseApprovalService {
      * or PurchaseResponse.details - null if PurchaseResponse.approved = false
      */
     public PurchaseResponse evaluatePurchase(PurchaseRequest request) {
-        Optional<PurchaseResponse> invalidRequestResponse = validateRequest(request);
-        if(invalidRequestResponse.isPresent()) {
-            return invalidRequestResponse.get();
-        }
-
         var customerProfileOptional = customerProfileDao.getCustomerProfile(request.personalId());
         if (customerProfileOptional.isEmpty()) {
             return new PurchaseResponse(false, null, "Customer is not found.");
@@ -45,8 +40,9 @@ public class PurchaseApprovalService {
             return new PurchaseResponse(false, null, "Customer is flagged.");
         }
 
-        double amount = request.details().amount();
-        int period = request.details().period();
+        double amount = sanitizeRequestAmount(request);
+        int period = sanitizeRequestPeriod(request);
+
         int financialFactor = customerProfileOptional.get().financialFactor();
         double approvalScore = calculateApprovalScore(financialFactor, amount, period);
 
@@ -57,7 +53,7 @@ public class PurchaseApprovalService {
         
         double maxAmount = calculateMaxAmountForPeriod(financialFactor, period);
 
-        if (maxAmount > MIN_AMOUNT) {
+        if (maxAmount >= MIN_AMOUNT) {
             return new PurchaseResponse(true, new PurchaseDetails(maxAmount, period),
                 "The maximum available offer is €" + maxAmount);
         }
@@ -74,27 +70,29 @@ public class PurchaseApprovalService {
     /**
      * Constraints:
      * ● Minimum and maximum purchase amounts: €200 – €5000
-     * ● Minimum and maximum payment periods: 6 months - 24 months
      *
-     * A possible approach would be to calculate a valid offer also if the API request is outside the constraints
-     * But I do not think implementing this corner case will show anything positive
-     * (for example, if it improved UX, I would consider it)
-     * so I am keeping it simple and denying anything outside the constraints
+     * These constraints should apply only to the response values
+     * Otherwise {@link PurchaseApprovalService#findNearestValidPurchaseDetails} cannot be tested
      *
      * @param request
-     * @return PurchaseResponse if request is not valid, otherwise Optional.empty
+     * @return amount that is between {@link PurchaseApprovalService.MIN_AMOUNT} and {@link PurchaseApprovalService.MAX_AMOUNT}
      */
-    private Optional<PurchaseResponse> validateRequest(PurchaseRequest request) {
-        if (!isValidAmount(request.details().amount())) {
-            return Optional.of(new PurchaseResponse(false, null,
-                "Amount must be between €" + MIN_AMOUNT + " and €" + MAX_AMOUNT));
-        }
+    private double sanitizeRequestAmount(PurchaseRequest request) {
+        return Math.max(Math.min(request.details().amount(), MAX_AMOUNT), MIN_AMOUNT);
+    }
 
-        if (!isValidPeriod(request.details().period())) {
-            return Optional.of(new PurchaseResponse(false, null,
-                "Period must be between " + MIN_MONTHS + " and " + MAX_MONTHS + " months"));
-        }
-        return Optional.empty();
+    /**
+     * Constraints:
+     * ● Minimum and maximum payment periods: 6 months - 24 months
+     *
+     * These constraints should apply only to the response values
+     * Otherwise {@link PurchaseApprovalService#findNearestValidPurchaseDetails} cannot be tested
+     *
+     * @param request
+     * @return period that is between {@link PurchaseApprovalService.MIN_MONTHS} and {@link PurchaseApprovalService.MAX_MONTHS}
+     */
+    private int sanitizeRequestPeriod(PurchaseRequest request) {
+        return Math.max(Math.min(request.details().period(), MAX_PERIOD), MIN_PERIOD);
     }
 
     /**
@@ -109,19 +107,22 @@ public class PurchaseApprovalService {
 
     private double calculateMaxAmountForPeriod(int financialFactor, int months) {
         double maxAmount = financialFactor * months;
-        return maxAmount > MAX_AMOUNT ? MAX_AMOUNT : maxAmount;
+        return Math.min(maxAmount, MAX_AMOUNT);
     }
 
-    private boolean isValidAmount(double amount) {
-        return amount >= MIN_AMOUNT && amount <= MAX_AMOUNT;
-    }
-
-    private boolean isValidPeriod(int months) {
-        return months >= MIN_MONTHS && months <= MAX_MONTHS;
-    }
-
+    /**
+     * If a suitable purchase amount is not found for the requested payment period,
+     * the system should attempt to adjust the payment period to find a suitable match
+     *
+     * @param financialFactor
+     * @param period
+     * @return PurchaseDetails
+     * PurchaseDetails.period closest value with valid amount after period value
+     * PurchaseDetails.amount calculated highest valid amount per closest valid period
+     * Optional.empty if such period could not be found
+     */
     private Optional<PurchaseDetails> findNearestValidPurchaseDetails(int financialFactor, int period) {
-        for (int months = period+1; months <= MAX_MONTHS; months++) {
+        for (int months = period+1; months <= MAX_PERIOD; months++) {
             double amount = calculateMaxAmountForPeriod(financialFactor, months);
             if (isValidAmount(amount)) {
                 return Optional.of(new PurchaseDetails(amount, months));
@@ -129,4 +130,8 @@ public class PurchaseApprovalService {
         }
         return Optional.empty();
     }
-} 
+
+    private boolean isValidAmount(double amount) {
+        return amount >= MIN_AMOUNT && amount <= MAX_AMOUNT;
+    }
+}

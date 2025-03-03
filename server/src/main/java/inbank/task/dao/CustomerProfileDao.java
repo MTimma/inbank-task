@@ -12,7 +12,9 @@ public class CustomerProfileDao {
         "12345678901", new CustomerProfile(true, -1), //ineligible
         "12345678912", new CustomerProfile(false, 50), //profile_1
         "12345678923", new CustomerProfile(false, 100), //profile_2
-        "12345678934", new CustomerProfile(false, 500) //profile_3
+        "12345678934", new CustomerProfile(false, 500), //profile_3
+        "test_15", new CustomerProfile(false, 15),
+        "test_1", new CustomerProfile(false, 1)
     );
 
     public Optional<CustomerProfile> getCustomerProfile(String personalId) {
